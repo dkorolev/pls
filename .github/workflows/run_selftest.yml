@@ -2,6 +2,8 @@ name: Self-test the HEAD.
 
 on:
   workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize]
   push:
     branches:
     - main
