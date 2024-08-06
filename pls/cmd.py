@@ -36,11 +36,13 @@ flags, cmd = parser.parse_known_args()
 if os.getenv("PLS_VERBOSE") is not None:
     flags.verbose = True
 
+
 def safe_readlink(path):
     try:
         return os.readlink(path)
     except OSError:
         return path
+
 
 def safe_get_base_dir_for_static(file, resolved_file):
     # NOTE(dkorolev): This works for all four cases:
@@ -51,6 +53,7 @@ def safe_get_base_dir_for_static(file, resolved_file):
     resolved_dir = os.path.dirname(resolved_file)
     return resolved_dir if resolved_dir else os.path.dirname(file)
 
+
 base_dir = safe_get_base_dir_for_static(__file__, safe_readlink(__file__))
 self_static_dir = os.path.join(base_dir, "static")
 
@@ -60,7 +63,7 @@ def read_static_file(fn):
         return file.read()
 
 
-version = read_static_file('version').strip()
+version = read_static_file("version").strip()
 
 # To clone git repos from a local path, not Github, for faster tests, for more reproducibility, and not to spam Github.
 # TODO(dkorolev): Probably look in `..`, and/or in the dir(s) specified in `pls.json`.
@@ -103,7 +106,10 @@ def pls_fail(msg):
 
 def check_not_in_pls_dir():
     if os.path.isfile("pls.py") or os.path.isfile("pls"):
-        pls_fail("PLS: You are probably running `pls` from the wrong directory. Navigate to your project directory first.")
+        pls_fail(
+            "PLS: You are probably running `pls` from the wrong directory. Navigate to your project directory first."
+        )
+
 
 modules = {}
 
@@ -187,6 +193,17 @@ def traverse_source_tree(src_dir="."):
                         # TODO(dkorolev): This looks like a terrible hack, but would do for now.
                         if not "lib_" in executable_name and not "_lib" in executable_name:
                             per_dir[src_dir].executables[executable_name] = prefix + src_name
+
+                        def do_pls_add(lib, repo):
+                            # TODO(dkorolev): Add branches. Fail if they do not match while installing the dependencies recursively.
+                            # TODO(dkorolev): Maybe create and add to `#include`-s path the `pls.h` file from this tool?
+                            # TODO(dkorolev): Variadic macro templates for branches.
+                            modules[lib] = repo
+                            libs_to_import.add(lib)
+
+                        def do_pls_dep(lib):
+                            per_dir[src_dir].executable_deps[executable_name].add(lib)
+
                         pls_commands = []
                         full_src_name = os.path.join(true_src_dir, src_name)
                         result = subprocess.run(
@@ -212,32 +229,24 @@ def traverse_source_tree(src_dir="."):
                             if "pls_project" in pls_cmd:
                                 # TODO(dkorolev): Parse the project name from `pls.json` as well.
                                 per_dir[src_dir].project_name = pls_cmd["pls_project"]
-                            elif "pls_import_deprecate_me" in pls_cmd:
-                                pls_import = pls_cmd["pls_import"]
-                                if "lib" in pls_import and "repo" in pls_import:
-                                    # TODO(dkorolev): Add branches. Fail if they do not match while installing the dependencies recursively.
-                                    # TODO(dkorolev): Maybe create and add to `#include`-s path the `pls.h` file from this tool?
-                                    # TODO(dkorolev): Variadic macro templates for branches.
-                                    lib, repo = pls_import["lib"], pls_import["repo"]
-                                    modules[lib] = repo
-                                    libs_to_import.add(lib)
-                                    per_dir[src_dir].executable_deps[executable_name].add(lib)
+                            elif "pls_add_dep" in pls_cmd:
+                                pls_add_dep = pls_cmd["pls_add_dep"]
+                                if "lib" in pls_add_dep and "repo" in pls_add_dep:
+                                    lib, repo = pls_add_dep["lib"], pls_add_dep["repo"]
+                                    do_pls_add(lib, repo)
+                                    do_pls_dep(lib)
                                 else:
-                                    pls_fail("PLS: Internal error, no `.lib` or `.repo` in `pls_import`.")
+                                    pls_fail("PLS: Internal error, no `.lib` or `.repo` in `pls_add_dep`.")
                             elif "pls_add" in pls_cmd:
                                 pls_add = pls_cmd["pls_add"]
                                 if "lib" in pls_add and "repo" in pls_add:
-                                    # TODO(dkorolev): Add branches. Fail if they do not match while installing the dependencies recursively.
-                                    # TODO(dkorolev): Maybe create and add to `#include`-s path the `pls.h` file from this tool?
-                                    # TODO(dkorolev): Variadic macro templates for branches.
                                     lib, repo = pls_add["lib"], pls_add["repo"]
-                                    modules[lib] = repo
-                                    libs_to_import.add(lib)
+                                    do_pls_add(lib, repo)
                                 else:
                                     pls_fail("PLS: Internal error, no `.lib` or `.repo` in `pls_add`.")
                             elif "pls_dep" in pls_cmd:
                                 pls_dep = pls_cmd["pls_dep"]
-                                per_dir[src_dir].executable_deps[executable_name].add(pls_dep)
+                                do_pls_dep(pls_dep)
                             elif "pls_include_header_only_current" in pls_cmd:
                                 if pls_cmd["pls_include_header_only_current"]:
                                     modules["C5T"] = "https://github.com/C5T/current"
