@@ -212,7 +212,7 @@ def traverse_source_tree(src_dir="."):
                             if "pls_project" in pls_cmd:
                                 # TODO(dkorolev): Parse the project name from `pls.json` as well.
                                 per_dir[src_dir].project_name = pls_cmd["pls_project"]
-                            if "pls_import" in pls_cmd:
+                            elif "pls_import_deprecate_me" in pls_cmd:
                                 pls_import = pls_cmd["pls_import"]
                                 if "lib" in pls_import and "repo" in pls_import:
                                     # TODO(dkorolev): Add branches. Fail if they do not match while installing the dependencies recursively.
@@ -222,6 +222,11 @@ def traverse_source_tree(src_dir="."):
                                     modules[lib] = repo
                                     libs_to_import.add(lib)
                                     per_dir[src_dir].executable_deps[executable_name].add(lib)
+                            elif "pls_use_current" in pls_cmd:
+                                if pls_cmd["pls_use_current"]:
+                                    modules["C5T"] = "https://github.com/C5T/current"
+                                    libs_to_import.add("C5T")
+                                    per_dir[src_dir].executable_deps[executable_name].add("C5T")
 
             process_sources_in_dir(src_dir)
             src_src_dir = os.path.join(src_dir, "src")
@@ -289,7 +294,7 @@ def update_dependencies():
                     file.write("\n")
                     file.write(f"project({full_dir_data.project_name} C CXX)\n")
                     file.write("\n")
-                    file.write("set(CMAKE_CXX_STANDARD 11)\n")
+                    file.write("set(CMAKE_CXX_STANDARD 17)\n")
                     file.write("set(CMAKE_CXX_STANDARD_REQUIRED True)\n")
                     file.write("\n")
                     file.write('# This is for `#include "pls.h"` to work.\n')
