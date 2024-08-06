@@ -11,10 +11,10 @@ selftest:
 	./run_selftest.sh
 
 fmt: test-reqs
-	black pls
+	black pls --config ./pls/pyproject.toml
 
 lint: test-reqs
-	pylama pls/
+	pylama -o ./pls/pylama.ini pls/
 
 local_install:
 	pip install -r requirements.txt
@@ -22,12 +22,6 @@ local_install:
 
 dev_install: test-reqs
 	pip install -e . --quiet
-
-test: dev_install
-	pytest --cov .
-
-coverage: dev_install
-	pytest --cov --cov-report html .
 
 clean:
 	rm -rf build dist pls.egg-info htmlcov

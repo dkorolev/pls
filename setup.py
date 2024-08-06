@@ -2,6 +2,11 @@ from setuptools import setup, find_packages
 
 
 def get_reqs(file="requirements.txt"):
+    """
+    In case of extranl deps use
+    install_requires=get_reqs()
+    And add requirements.txt
+    """
     with open(file) as f:
         return [s.rstrip("\n") for s in f.readlines()]
 
@@ -15,7 +20,6 @@ setup(
     name="plsbuild",
     version=get_version(),
     packages=find_packages(),
-    install_requires=get_reqs(),
     author="Dima Korolev",
     author_email="dima@current.ai",
     description="C/C++ Build Tool",
