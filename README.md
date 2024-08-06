@@ -54,7 +54,7 @@ Also, by default `pls` looks into the root project directory and its `src/` subd
 
 ### Dependency
 
-Now, let's use a trivial dependency.
+Now, let's use a [trivial dependency](https://github.com/dkorolev/trivial_cmake_lib).
 
 ```
 #include <iostream>
