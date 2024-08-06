@@ -1,4 +1,4 @@
-.PHONY: test-reqs package fmt lint local_install dev_install test coverage clean push_pypi
+.PHONY: test-reqs package selftest fmt lint local_install dev_install test coverage clean push_pypi
 
 
 test-reqs:
@@ -6,6 +6,9 @@ test-reqs:
 
 package:
 	python3 setup.py bdist_wheel
+
+selftest:
+	./run_selftest.sh
 
 fmt: test-reqs
 	black pls

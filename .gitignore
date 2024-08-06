@@ -1,7 +1,10 @@
-*.egg-info/
-__pycache__
-dist/
+# NOTE(dkorolev): I do `sort -u` on these.
+
 build/
 .coverage
+dist/
+*.egg-info/
 htmlcov/
 myenv/
+__pycache__
+.selftest/

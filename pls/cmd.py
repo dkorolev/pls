@@ -93,8 +93,9 @@ def pls_fail(msg):
     sys.exit(1)
 
 
-if os.path.isfile("pls.py") or os.path.isfile("pls"):
-    pls_fail("PLS: You are probably running `pls` from the wrong directory. Navigate to your project directory first.")
+def check_not_in_pls_dir():
+    if os.path.isfile("pls.py") or os.path.isfile("pls"):
+        pls_fail("PLS: You are probably running `pls` from the wrong directory. Navigate to your project directory first.")
 
 modules = {}
 
@@ -384,6 +385,7 @@ def cmd_version(unused_args):
 
 
 def cmd_clean(args):
+    check_not_in_pls_dir()
     traverse_source_tree()
     previously_broken_symlinks = set()
     for lib, _ in modules.items():
@@ -403,12 +405,14 @@ def cmd_clean(args):
 
 
 def cmd_install(args):
+    check_not_in_pls_dir()
     update_dependencies()
     if flags.verbose:
         print("PLS: Dependencies cloned successfully.")
 
 
 def cmd_build(args):
+    check_not_in_pls_dir()
     update_dependencies()
     # TODO(dkorolev): Debug/release.
     result = subprocess.run(["cmake", "-B", ".debug", f"-DCMAKE_CXX_FLAGS=-I{os.path.abspath(pls_h_dir)}"])
@@ -422,6 +426,7 @@ def cmd_build(args):
 
 
 def cmd_run(args):
+    check_not_in_pls_dir()
     cmd_build([])
     # TODO(dkorolev): Forward the command line? And test it?
     executables = per_dir[os.path.abspath(".")].executables
@@ -440,10 +445,6 @@ def cmd_run(args):
 
 
 def main():
-    if os.path.isfile("pls.py") or os.path.isfile("pls") or os.path.isdir("pls"):
-        pls_fail(
-            "PLS: You are probably running `pls` from the wrong directory. Navigate to your project directory first."
-        )
     cmds = {}
     cmds["version"] = cmd_version
     cmds["v"] = cmd_version
