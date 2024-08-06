@@ -1,3 +1,5 @@
+[![Self-test the HEAD](https://github.com/dkorolev/pls/actions/workflows/run_selftest.yml/badge.svg)](https://github.com/dkorolev/pls/actions/workflows/run_selftest.yml)
+
 # `pls`
 
 The build system for `CMakeLists.txt` projects, mostly C and C++. Designed for predictability and ease of use.
