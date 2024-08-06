@@ -1,4 +1,4 @@
-name: Self-test the HEAD.
+name: Self-test the HEAD
 
 on:
   workflow_dispatch:
