@@ -61,7 +61,8 @@ Now, let's use a trivial dependency.
 
 #include "pls.h"
 
-PLS_IMPORT("trivial_cmake_lib", "https://github.com/dkorolev/trivial_cmake_lib");
+PLS_ADD("trivial_cmake_lib", "https://github.com/dkorolev/trivial_cmake_lib");
+PLS_DEP("trivial_cmake_lib");
 
 #include "trivial_cmake_lib.h"
 
@@ -76,15 +77,15 @@ Besides, after the first run of `pls`, either `pls build` or `pls run`, the crea
 
 Note that you do not need the `"pls.h"` file. The `pls`-provided build setup handles this. `TODO(dkorolev):` Make sure it works for non-`pls` users to some day.
 
-When it comes to where the `PLS_IMPORT` "directive" should go in the code, just make sure it takes place before `#include`-ing any headers from the libraries to be imported. Otherwise the preprocessor will fail on missing header files, will never get to processing the `PLS_IMPORT` statements, and the auto-import magic will not work.
+When it comes to where the `PLS_*` statements should go in the code, just make sure it takes place before `#include`-ing any headers from the libraries to be imported. Otherwise the preprocessor will fail on missing header files, will never get to processing the `PLS_*` statements, and the auto-import magic will not work.
 
-The semicolon after `PLS_IMPORT` is optional.
+The semicolon after `PLS_*` statements is optional.
 
-Behind the scenes, in the "true" build, the `PLS_IMPORT` macro is only checking that the passed-in parameters are compile-time strings. During the build phase, the `PLS_IMPORT` directive is parsed differently, so that the dependencies are extracted by `pls`.
+Behind the scenes, in the "true" build, the `PLS_*`-s are macros that only check that the passed-in parameters are compile-time strings. During the pre-build phase, prior to `cmake` cofiguration, these `PLS_*` statements are interpreted differently, so that the dependencies are extracted by `pls`.
 
 ### The `pls.json` File
 
-While `pls` strives for simplicity, `PLS_IMPORT()` in code is not the only, or even the recommended way to define dependencies.
+While `pls` strives for simplicity, `PLS_*()` statements in code are not the only, or even the recommended way to define dependencies.
 
 The long-form way is to use the `pls.json` file:
 
@@ -96,7 +97,7 @@ The long-form way is to use the `pls.json` file:
 }
 ```
 
-For toy projects, it is probably an overkill, sice `PLS_IMPORT()` would do the trick. If you are maintaining a library and a non-zero portion of your users are using `pls`, you may want to have a `pls.json` file.
+For toy projects using `pls.json` might be too much, since `PLS_*()`-s would do the job just fine. Personally, I'm a huge fan of having small self-contained sources for simple tasks. On the other hand, if you are maintaining a library, you may want to have a `pls.json` file, which has an extra benefit of not having to modify source files.
 
 Also, `TODO(dkorolev):` need to support some `pls add ...` command to add dependencies into `pls.json` automatically.
 
@@ -106,7 +107,7 @@ When running `pls build` (or `pls install`, or `pls b` or `pls i` for short), th
 
 Effectively, `pls`-installed dependencies are designed to be "included" straight away as `add_subdirectory(dep_name)` from the project's `CMakeLists.txt`. If the project does have its own `CMakeLists.txt`, it should require these dependencies as such. If it does not, the respective `CMakeLists.txt` will be created by `pls`, included in the project, and `.gitignore`-d, since it is meant to be ephemeral.
 
-Recursively, if and when a particular respective dependency does not have the `CMakeLists.txt` file by itself, it will also be created the same way, as well as all the sub-dependencies for this particular dependency, if they are listed in the `.cc` file(s) via `PLS_IMPORT()`, or in the `pls.json` file directly.
+Recursively, if and when a particular respective dependency does not have the `CMakeLists.txt` file by itself, it will also be created the same way, as well as all the sub-dependencies for this particular dependency, if they are listed in the `.cc` file(s) via `PLS_*()` statements, or in the `pls.json` file directly.
 
 The `pls` tool does not attempt to parse existing `CMakeLists.txt` files. When a dependency has the `CMakeLists.txt` file, `pls` assumes this is the terminal dependency that should be `add_subdirectory()`-d by itself.
 
