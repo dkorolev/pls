@@ -6,7 +6,7 @@ on:
   push:
 
 jobs:
-  run:
+  selftest_head:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
