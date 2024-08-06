@@ -222,8 +222,8 @@ def traverse_source_tree(src_dir="."):
                                     modules[lib] = repo
                                     libs_to_import.add(lib)
                                     per_dir[src_dir].executable_deps[executable_name].add(lib)
-                            elif "pls_use_current" in pls_cmd:
-                                if pls_cmd["pls_use_current"]:
+                            elif "pls_include_header_only_current" in pls_cmd:
+                                if pls_cmd["pls_include_header_only_current"]:
                                     modules["C5T"] = "https://github.com/C5T/current"
                                     libs_to_import.add("C5T")
                                     per_dir[src_dir].executable_deps[executable_name].add("C5T")
