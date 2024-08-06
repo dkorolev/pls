@@ -222,6 +222,22 @@ def traverse_source_tree(src_dir="."):
                                     modules[lib] = repo
                                     libs_to_import.add(lib)
                                     per_dir[src_dir].executable_deps[executable_name].add(lib)
+                                else:
+                                    pls_fail("PLS: Internal error, no `.lib` or `.repo` in `pls_import`.")
+                            elif "pls_add" in pls_cmd:
+                                pls_add = pls_cmd["pls_add"]
+                                if "lib" in pls_add and "repo" in pls_add:
+                                    # TODO(dkorolev): Add branches. Fail if they do not match while installing the dependencies recursively.
+                                    # TODO(dkorolev): Maybe create and add to `#include`-s path the `pls.h` file from this tool?
+                                    # TODO(dkorolev): Variadic macro templates for branches.
+                                    lib, repo = pls_add["lib"], pls_add["repo"]
+                                    modules[lib] = repo
+                                    libs_to_import.add(lib)
+                                else:
+                                    pls_fail("PLS: Internal error, no `.lib` or `.repo` in `pls_add`.")
+                            elif "pls_dep" in pls_cmd:
+                                pls_dep = pls_cmd["pls_dep"]
+                                per_dir[src_dir].executable_deps[executable_name].add(pls_dep)
                             elif "pls_include_header_only_current" in pls_cmd:
                                 if pls_cmd["pls_include_header_only_current"]:
                                     modules["C5T"] = "https://github.com/C5T/current"
