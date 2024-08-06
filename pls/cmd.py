@@ -36,14 +36,22 @@ flags, cmd = parser.parse_known_args()
 if os.getenv("PLS_VERBOSE") is not None:
     flags.verbose = True
 
-def file_or_link(path):
+def safe_readlink(path):
     try:
-        result = os.readlink(path)
+        return os.readlink(path)
     except OSError:
-        result = path
-    return result
+        return path
 
-base_dir = os.path.dirname(file_or_link(__file__))
+def safe_get_base_dir_for_static(file, resolved_file):
+    # NOTE(dkorolev): This works for all four cases:
+    # 1) when `pls` is installed via `pip`,
+    # 2) when `pls` is a symlink in some `/usr/local/bin/pls`,
+    # 3) when invoking `pls` via absolute path, i.e. `~/github/dkorolev/pls/pls/pls version`, and
+    # 4) when invoking `pls` via a relative path, i.e. `../pls/pls/pls version`.
+    resolved_dir = os.path.dirname(resolved_file)
+    return resolved_dir if resolved_dir else os.path.dirname(file)
+
+base_dir = safe_get_base_dir_for_static(__file__, safe_readlink(__file__))
 self_static_dir = os.path.join(base_dir, "static")
 
 
