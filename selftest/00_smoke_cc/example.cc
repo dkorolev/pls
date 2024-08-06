@@ -1,5 +1,5 @@
 #include <iostream>
 
 int main() {
-  std::cout << "OK" << std::endl;
+  std::cout << "Fail!" << std::endl;
 }
