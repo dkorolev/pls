@@ -130,6 +130,7 @@ class PerDirectoryStatus:
     deps: set = field(default_factory=lambda: set())
     project_name: str = "pls_project"
     targets: defaultdict = field(default_factory=lambda: defaultdict(CMakeTarget))
+    target_compile_definitions: defaultdict = field(default_factory=lambda: defaultdict(dict))
     add_to_gitignore = []
     need_cmakelists_txt: bool = False
 
@@ -186,6 +187,7 @@ def traverse_source_tree(src_dir="."):
             pls_json_path = os.path.join(src_dir, "pls.json")
             pls_json = None
             pls_json_deps = dict()
+            pls_target_compile_definitions = dict()
             if os.path.isfile(pls_json_path):
                 with open(pls_json_path, "r") as file:
                     try:
@@ -200,6 +202,8 @@ def traverse_source_tree(src_dir="."):
                 if "PLS_DEP" in pls_json:
                     for src, deps in pls_json["PLS_DEP"].items():
                         pls_json_deps[src] = deps
+                if "PLS_TARGET_COMPILE_DEFINITIONS" in pls_json:
+                    per_dir[src_dir].target_compile_definitions = pls_json["PLS_TARGET_COMPILE_DEFINITIONS"]
 
             def process_sources_in_dir(true_src_dir, prefix=""):
                 for src_name in os.listdir(true_src_dir):
@@ -368,6 +372,13 @@ def update_dependencies():
                             if target_details.deps:
                                 libs = " ".join(sorted(list(target_details.deps)))
                                 file.write(f"target_link_libraries({target_name} {libs})\n")
+                    if full_dir_data.target_compile_definitions:
+                        for target_name, definitions_dict in full_dir_data.target_compile_definitions.items():
+                            file.write("\n")
+                            for k, v in definitions_dict.items():
+                                # `json.dumps()` is used to `#define` numbers directly, and strings as escaped quoted strings.
+                                file.write(f"target_compile_definitions({target_name} PRIVATE {k}={json.dumps(v)})\n")
+
             gitignore_lines = sorted(full_dir_data.add_to_gitignore)
             gitignore_file = os.path.join(full_dir, ".gitignore")
             skip_this_gitignore = False
