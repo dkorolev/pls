@@ -27,6 +27,7 @@ import json
 from collections import deque
 from collections import defaultdict
 from dataclasses import dataclass, field
+from enum import Enum
 
 parser = argparse.ArgumentParser(description="PLS: The trivial build system for C++ and beyond, v0.01")
 parser.add_argument("--verbose", "-v", action="store_true", help="Increase output verbosity")
@@ -111,19 +112,29 @@ def check_not_in_pls_dir():
         )
 
 
-modules = {}
+class DepsOrigin(Enum):
+    Unset = 0
+    PlsJson = 1
+    SourceScan = 2
+
+
+@dataclass
+class CMakeTarget:
+    src_fullpath: str
+    deps = set()
+    deps_origin: DepsOrigin = DepsOrigin.Unset
 
 
 @dataclass
 class PerDirectoryStatus:
     deps: set = field(default_factory=lambda: set())
     project_name: str = "pls_project"
-    executables: dict = field(default_factory=dict)
-    executable_deps: defaultdict = field(default_factory=lambda: defaultdict(set))
+    targets: defaultdict = field(default_factory=lambda: defaultdict(CMakeTarget))
     add_to_gitignore = []
     need_cmakelists_txt: bool = False
 
 
+modules = {}  # str -> str, module name -> repo, with a special case for `C5T`.
 per_dir = defaultdict(PerDirectoryStatus)
 
 full_abspath = os.path.abspath(".")
@@ -173,18 +184,22 @@ def traverse_source_tree(src_dir="."):
             libs_to_import = set()
             already_traversed_src_dirs.add(src_dir)
             pls_json_path = os.path.join(src_dir, "pls.json")
+            pls_json = None
+            pls_json_deps = dict()
             if os.path.isfile(pls_json_path):
-                pls_json = None
                 with open(pls_json_path, "r") as file:
                     try:
                         pls_json = json.loads(file.read())
                     except json.decoder.JSONDecodeError as e:
                         pls_fail(f"PLS: Failed to parse `{pls_json_path}`: {e}.")
-                if "import" in pls_json:
-                    for lib, repo in pls_json["import"].items():
+                if "PLS_ADD" in pls_json:
+                    for lib, repo in pls_json["PLS_ADD"].items():
                         # TODO(dkorolev): Fail on branch mismatch.
                         modules[lib] = repo
                         libs_to_import.add(lib)
+                if "PLS_DEP" in pls_json:
+                    for src, deps in pls_json["PLS_DEP"].items():
+                        pls_json_deps[src] = deps
 
             def process_sources_in_dir(true_src_dir, prefix=""):
                 for src_name in os.listdir(true_src_dir):
@@ -192,7 +207,10 @@ def traverse_source_tree(src_dir="."):
                         executable_name = src_name.rstrip(".cc")
                         # TODO(dkorolev): This looks like a terrible hack, but would do for now.
                         if not "lib_" in executable_name and not "_lib" in executable_name:
-                            per_dir[src_dir].executables[executable_name] = prefix + src_name
+                            per_dir[src_dir].targets[executable_name] = CMakeTarget(
+                                src_fullpath=prefix + src_name,
+                                deps_origin=DepsOrigin.PlsJson if pls_json else DepsOrigin.SourceScan,
+                            )
 
                         def do_pls_add(lib, repo):
                             # TODO(dkorolev): Add branches. Fail if they do not match while installing the dependencies recursively.
@@ -202,56 +220,63 @@ def traverse_source_tree(src_dir="."):
                             libs_to_import.add(lib)
 
                         def do_pls_dep(lib):
-                            per_dir[src_dir].executable_deps[executable_name].add(lib)
+                            per_dir[src_dir].targets[executable_name].deps.add(lib)
 
-                        pls_commands = []
-                        full_src_name = os.path.join(true_src_dir, src_name)
-                        result = subprocess.run(
-                            [
-                                "bash",
-                                cc_instrument_sh,
-                                full_src_name,
-                                os.path.join(os.path.abspath(flags.dotpls), "pls_h_dir"),
-                            ],
-                            capture_output=True,
-                            text=True,
-                        )
-                        for line in result.stdout.split("\n"):
-                            stripped_line = line.rstrip(";").strip()
-                            if stripped_line:
-                                try:
-                                    pls_commands.append(json.loads(stripped_line))
-                                except json.decoder.JSONDecodeError as e:
-                                    pls_fail(
-                                        f"PLS internal error: Can not parse `{stripped_line}` while processing `{full_src_name}`."
-                                    )
-                        for pls_cmd in pls_commands:
-                            if "pls_project" in pls_cmd:
-                                # TODO(dkorolev): Parse the project name from `pls.json` as well.
-                                per_dir[src_dir].project_name = pls_cmd["pls_project"]
-                            elif "pls_add_dep" in pls_cmd:
-                                pls_add_dep = pls_cmd["pls_add_dep"]
-                                if "lib" in pls_add_dep and "repo" in pls_add_dep:
-                                    lib, repo = pls_add_dep["lib"], pls_add_dep["repo"]
-                                    do_pls_add(lib, repo)
-                                    do_pls_dep(lib)
-                                else:
-                                    pls_fail("PLS: Internal error, no `.lib` or `.repo` in `pls_add_dep`.")
-                            elif "pls_add" in pls_cmd:
-                                pls_add = pls_cmd["pls_add"]
-                                if "lib" in pls_add and "repo" in pls_add:
-                                    lib, repo = pls_add["lib"], pls_add["repo"]
-                                    do_pls_add(lib, repo)
-                                else:
-                                    pls_fail("PLS: Internal error, no `.lib` or `.repo` in `pls_add`.")
-                            elif "pls_dep" in pls_cmd:
-                                pls_dep = pls_cmd["pls_dep"]
-                                do_pls_dep(pls_dep)
-                            elif "pls_include_header_only_current" in pls_cmd:
-                                if pls_cmd["pls_include_header_only_current"]:
-                                    modules["C5T"] = "https://github.com/C5T/current"
-                                    libs_to_import.add("C5T")
-                                    per_dir[src_dir].executable_deps[executable_name].add("C5T")
+                        if pls_json:
+                            # TODO(dkorolev): Test Windows paths here, with the other slash.
+                            local_src_name = prefix + src_name
+                            if local_src_name in pls_json_deps:
+                                for dep in pls_json_deps[local_src_name]:
+                                    do_pls_dep(dep)
+                        else:
+                            pls_commands = []
+                            full_src_name = os.path.join(true_src_dir, src_name)
+                            result = subprocess.run(
+                                [
+                                    "bash",
+                                    cc_instrument_sh,
+                                    full_src_name,
+                                    os.path.join(os.path.abspath(flags.dotpls), "pls_h_dir"),
+                                ],
+                                capture_output=True,
+                                text=True,
+                            )
+                            for line in result.stdout.split("\n"):
+                                stripped_line = line.rstrip(";").strip()
+                                if stripped_line:
+                                    try:
+                                        pls_commands.append(json.loads(stripped_line))
+                                    except json.decoder.JSONDecodeError as e:
+                                        pls_fail(
+                                            f"PLS internal error: Can not parse `{stripped_line}` while processing `{full_src_name}`."
+                                        )
+                            for pls_cmd in pls_commands:
+                                if "pls_project" in pls_cmd:
+                                    # TODO(dkorolev): Parse the project name from `pls.json` as well.
+                                    per_dir[src_dir].project_name = pls_cmd["pls_project"]
+                                elif "pls_add_dep" in pls_cmd:
+                                    pls_add_dep = pls_cmd["pls_add_dep"]
+                                    if "lib" in pls_add_dep and "repo" in pls_add_dep:
+                                        lib, repo = pls_add_dep["lib"], pls_add_dep["repo"]
+                                        do_pls_add(lib, repo)
+                                        do_pls_dep(lib)
+                                    else:
+                                        pls_fail("PLS: Internal error, no `.lib` or `.repo` in `pls_add_dep`.")
+                                elif "pls_add" in pls_cmd:
+                                    pls_add = pls_cmd["pls_add"]
+                                    if "lib" in pls_add and "repo" in pls_add:
+                                        lib, repo = pls_add["lib"], pls_add["repo"]
+                                        do_pls_add(lib, repo)
+                                    else:
+                                        pls_fail("PLS: Internal error, no `.lib` or `.repo` in `pls_add`.")
+                                elif "pls_dep" in pls_cmd:
+                                    pls_dep = pls_cmd["pls_dep"]
+                                    do_pls_dep(pls_dep)
+                                elif "pls_include_header_only_current" in pls_cmd:
+                                    if pls_cmd["pls_include_header_only_current"]:
+                                        modules["C5T"] = "https://github.com/C5T/current"
+                                        libs_to_import.add("C5T")
+                                        per_dir[src_dir].targets[executable_name].deps.add("C5T")
 
             process_sources_in_dir(src_dir)
             src_src_dir = os.path.join(src_dir, "src")
@@ -305,8 +330,10 @@ def update_dependencies():
         for full_dir, full_dir_data in per_dir.items():
             if full_dir_data.need_cmakelists_txt:
                 # TODO(dkorolev): Libraries would work too, not just executables.
-                if not full_dir_data.executables:
+                if not full_dir_data.targets:
                     pls_fail("PLS: To run `pls install/build/run` please make sure to have at least one source file.")
+                # TODO(dkorolev): Update `.pls/cache.json` to indicate that this `CMakeLists.txt` is created by this tool.
+                #                 Better yet, copy it under a different name into `.pls/cache.json`, or store its hash.
                 with open(os.path.join(full_dir, "CMakeLists.txt"), "w") as file:
                     file.write("# NOTE: This `CMakeLists.txt` is autogenerated by `pls`.\n")
                     file.write("#       It is perfectly OK to edit, if only to remove this header.\n")
@@ -328,13 +355,19 @@ def update_dependencies():
                         file.write("\n")
                         for dep in full_dir_data.deps:
                             file.write(f"add_subdirectory({dep})\n")
-                    if full_dir_data.executables:
-                        for exe, src in full_dir_data.executables.items():
+                    if full_dir_data.targets:
+                        for target_name, target_details in full_dir_data.targets.items():
                             file.write("\n")
-                            file.write(f"add_executable({exe} {src})\n")
-                            if exe in full_dir_data.executable_deps:
-                                libs = " ".join(sorted(list(full_dir_data.executable_deps[exe])))
-                                file.write(f"target_link_libraries({exe} { libs })\n")
+                            file.write(f"add_executable({target_name} {target_details.src_fullpath})\n")
+                            deps_origin_str = (
+                                "PLS_HAS_PLS_JSON"
+                                if target_details.deps_origin == DepsOrigin.PlsJson
+                                else "PLS_SCANNED_SOURCE"
+                            )
+                            file.write(f"target_compile_definitions({target_name} PRIVATE {deps_origin_str}=1)\n")
+                            if target_details.deps:
+                                libs = " ".join(sorted(list(target_details.deps)))
+                                file.write(f"target_link_libraries({target_name} {libs})\n")
             gitignore_lines = sorted(full_dir_data.add_to_gitignore)
             gitignore_file = os.path.join(full_dir, ".gitignore")
             skip_this_gitignore = False
@@ -369,6 +402,34 @@ def update_dependencies():
                 with open(gitignore_file, "a") as file:
                     file.writelines(lines)
 
+    traverse_source_tree()
+
+    # TODO(dkorolev): Exclude the manually-added symlinks to the libraries, in `static/.vscode/settings.json`.
+    if not os.path.isdir(".vscode"):
+        if flags.verbose:
+            print("PLS: Adding `.vscode` to `.gitignore`, as it was not here before.")
+        per_dir[full_abspath].add_to_gitignore.append(".vscode")
+    os.makedirs(".vscode", exist_ok=True)
+    self_static_vscode_dir = os.path.join(self_static_dir, "dot_vscode")
+    for dot_vs_code_static_file in os.listdir(self_static_vscode_dir):
+        dst_static_file = os.path.join(".vscode", dot_vs_code_static_file)
+        if not os.path.isfile(dst_static_file):
+            with open(dst_static_file, "w") as file:
+                file.write(read_static_file(os.path.join(self_static_vscode_dir, dot_vs_code_static_file)))
+
+    apply_gitignore_changes_and_more()
+
+
+dot_pls_created = False
+
+
+def create_and_populate_dot_pls_once():
+    global dot_pls_created
+    if dot_pls_created:
+        return
+
+    dot_pls_created = True
+
     os.makedirs(flags.dotpls, exist_ok=True)
 
     if not os.path.isfile(cc_instrument_sh):
@@ -392,31 +453,6 @@ def update_dependencies():
         with open(pls_h, "w") as file:
             file.write(pls_h_contents)
 
-    traverse_source_tree()
-
-    # TODO(dkorolev): Exclude the manually-added symlinks to the libraries, in `static/.vscode/settings.json`.
-    if not os.path.isdir(".vscode"):
-        if flags.verbose:
-            print("PLS: Adding `.vscode` to `.gitignore`, as it was not here before.")
-        per_dir[full_abspath].add_to_gitignore.append(".vscode")
-    os.makedirs(".vscode", exist_ok=True)
-    self_static_vscode_dir = os.path.join(self_static_dir, "dot_vscode")
-    for dot_vs_code_static_file in os.listdir(self_static_vscode_dir):
-        dst_static_file = os.path.join(".vscode", dot_vs_code_static_file)
-        if not os.path.isfile(dst_static_file):
-            with open(dst_static_file, "w") as file:
-                file.write(read_static_file(os.path.join(self_static_vscode_dir, dot_vs_code_static_file)))
-
-    apply_gitignore_changes_and_more()
-
-
-if __name__ == "__main__" and not cmd:
-    # TODO(dkorolev): Differentiate between debug and release?
-    # TODO(dkorolev): The "selfupdate" command, in case `pls` is `alias`-ed into a cloned repo?
-    # TODO(dkorolev): `test` to run the tests, and also `release_test`.
-    print("PLS: Requires a command, the most common ones are `build`, `run`, `clean`, and `version`.")
-    sys.exit(0)
-
 
 def cmd_version(unused_args):
     print(f"PLS {version} NOT READY YET")
@@ -424,6 +460,7 @@ def cmd_version(unused_args):
 
 def cmd_clean(args):
     check_not_in_pls_dir()
+    create_and_populate_dot_pls_once()  # TODO(dkorolev): Make `clean` clean, it should not install anything!
     traverse_source_tree()
     previously_broken_symlinks = set()
     for lib, _ in modules.items():
@@ -444,6 +481,7 @@ def cmd_clean(args):
 
 def cmd_install(args):
     check_not_in_pls_dir()
+    create_and_populate_dot_pls_once()
     update_dependencies()
     if flags.verbose:
         print("PLS: Dependencies cloned successfully.")
@@ -451,6 +489,7 @@ def cmd_install(args):
 
 def cmd_build(args):
     check_not_in_pls_dir()
+    create_and_populate_dot_pls_once()
     update_dependencies()
     # TODO(dkorolev): Debug/release.
     result = subprocess.run(["cmake", "-B", ".debug", f"-DCMAKE_CXX_FLAGS=-I{os.path.abspath(pls_h_dir)}"])
@@ -465,24 +504,32 @@ def cmd_build(args):
 
 def cmd_run(args):
     check_not_in_pls_dir()
+    create_and_populate_dot_pls_once()
     cmd_build([])
     # TODO(dkorolev): Forward the command line? And test it?
-    executables = per_dir[os.path.abspath(".")].executables
+    targets = per_dir[os.path.abspath(".")].targets
     if not args:
-        if len(executables) == 1:
-            result = subprocess.run([f"./.debug/{next(iter(executables.keys()))}"])
+        if len(targets) == 1:
+            result = subprocess.run([f"./.debug/{next(iter(targets.keys()))}"])
         else:
             pls_fail(
-                f"PLS: Has more than one executable, specify the name direcly, one of {json.dumps(list(executables.keys()))}."
+                f"PLS: Has more than one executable, specify the name direcly, one of {json.dumps(list(targets.keys()))}."
             )
     else:
-        if args[0] in executables:
+        if args[0] in targets:
             result = subprocess.run([f"./.debug/{args[0]}"])
         else:
-            pls_fail(f"PLS: Executable `{args[0]}` is not in {json.dumps(list(executables.keys()))}.")
+            pls_fail(f"PLS: Executable `{args[0]}` is not in {json.dumps(list(targets.keys()))}.")
 
 
 def main():
+    if not cmd:
+        # TODO(dkorolev): Differentiate between debug and release?
+        # TODO(dkorolev): The "selfupdate" command, in case `pls` is `alias`-ed into a cloned repo?
+        # TODO(dkorolev): `test` to run the tests, and also `release_test`.
+        print("PLS: Requires a command, the most common ones are `build`, `run`, `clean`, and `version`.")
+        sys.exit(0)
+
     cmds = {}
     cmds["version"] = cmd_version
     cmds["v"] = cmd_version

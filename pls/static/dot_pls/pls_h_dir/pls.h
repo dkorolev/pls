@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef PLS_HAS_PLS_JSON
+#error "Your code should not `#include \"pls.h\"` when `pls.json` is used. Remove this `#include`, or at least guard it with `#ifndef PLS_HAS_PLS_JSON` if you know what you are doing.'"
+#endif  // PLS_HAS_PLS_JSON
+
 #ifndef PLS_INSTRUMENTATION
 
 #define PLS_JOIN_HELPER(a,b) a##b
