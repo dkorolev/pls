@@ -122,12 +122,12 @@ class DepsOrigin(Enum):
 class CMakeTarget:
     src_fullpath: str
     deps = set()
-    deps_origin: DepsOrigin = DepsOrigin.Unset
 
 
 @dataclass
 class PerDirectoryStatus:
     deps: set = field(default_factory=lambda: set())
+    deps_origin: DepsOrigin = DepsOrigin.Unset
     project_name: str = "pls_project"
     targets: defaultdict = field(default_factory=lambda: defaultdict(CMakeTarget))
     target_compile_definitions: defaultdict = field(default_factory=lambda: defaultdict(dict))
@@ -189,6 +189,7 @@ def traverse_source_tree(src_dir="."):
             pls_json_deps = dict()
             pls_target_compile_definitions = dict()
             if os.path.isfile(pls_json_path):
+                per_dir[src_dir].deps_origin = DepsOrigin.PlsJson
                 with open(pls_json_path, "r") as file:
                     try:
                         pls_json = json.loads(file.read())
@@ -204,6 +205,8 @@ def traverse_source_tree(src_dir="."):
                         pls_json_deps[src] = deps
                 if "PLS_TARGET_COMPILE_DEFINITIONS" in pls_json:
                     per_dir[src_dir].target_compile_definitions = pls_json["PLS_TARGET_COMPILE_DEFINITIONS"]
+            else:
+                per_dir[src_dir].deps_origin = DepsOrigin.SourceScan
 
             def process_sources_in_dir(true_src_dir, prefix=""):
                 for src_name in os.listdir(true_src_dir):
@@ -211,10 +214,7 @@ def traverse_source_tree(src_dir="."):
                         executable_name = src_name.rstrip(".cc")
                         # TODO(dkorolev): This looks like a terrible hack, but would do for now.
                         if not "lib_" in executable_name and not "_lib" in executable_name:
-                            per_dir[src_dir].targets[executable_name] = CMakeTarget(
-                                src_fullpath=prefix + src_name,
-                                deps_origin=DepsOrigin.PlsJson if pls_json else DepsOrigin.SourceScan,
-                            )
+                            per_dir[src_dir].targets[executable_name] = CMakeTarget(src_fullpath=prefix + src_name)
 
                         def do_pls_add(lib, repo):
                             # TODO(dkorolev): Add branches. Fail if they do not match while installing the dependencies recursively.
@@ -365,7 +365,7 @@ def update_dependencies():
                             file.write(f"add_executable({target_name} {target_details.src_fullpath})\n")
                             deps_origin_str = (
                                 "PLS_HAS_PLS_JSON"
-                                if target_details.deps_origin == DepsOrigin.PlsJson
+                                if full_dir_data.deps_origin == DepsOrigin.PlsJson
                                 else "PLS_SCANNED_SOURCE"
                             )
                             file.write(f"target_compile_definitions({target_name} PRIVATE {deps_origin_str}=1)\n")
