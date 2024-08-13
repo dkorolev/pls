@@ -365,7 +365,6 @@ def update_dependencies():
                             file.write(f"add_subdirectory({dep})\n")
                     if full_dir_data.targets:
                         for target_name, target_details in full_dir_data.targets.items():
-                            print(f"DEBUG {full_dir} {target_name} {target_details}")
                             file.write("\n")
                             target_type = "library" if target_details.is_library else "executable"
                             file.write(f"add_{target_type}({target_name} {target_details.src_fullpath})\n")
@@ -379,7 +378,6 @@ def update_dependencies():
                                 file.write(f"target_include_directories({target_name} INTERFACE " + '"${CMAKE_CURRENT_SOURCE_DIR}")\n')
                             if target_details.target_deps:
                                 libs = " ".join(sorted(list(target_details.target_deps)))
-                                print(f"DEBUG2: WTF: {target_name} {libs}")
                                 file.write(f"target_link_libraries({target_name} {libs})\n")
                     if full_dir_data.target_compile_definitions:
                         for target_name, definitions_dict in full_dir_data.target_compile_definitions.items():
