@@ -190,6 +190,8 @@ def traverse_source_tree(src_dir="."):
             pls_json = None
             pls_json_deps = dict()
             pls_target_compile_definitions = dict()
+            add_header_only_current_to_each_target = False
+            add_header_only_current_to_target = set()
             if os.path.isfile(pls_json_path):
                 per_dir[src_dir].deps_origin = DepsOrigin.PlsJson
                 with open(pls_json_path, "r") as file:
@@ -207,6 +209,14 @@ def traverse_source_tree(src_dir="."):
                         pls_json_deps[src] = deps
                 if "PLS_TARGET_COMPILE_DEFINITIONS" in pls_json:
                     per_dir[src_dir].target_compile_definitions = pls_json["PLS_TARGET_COMPILE_DEFINITIONS"]
+                if "PLS_INCLUDE_HEADER_ONLY_CURRENT" in pls_json:
+                    modules["C5T"] = "https://github.com/C5T/current"
+                    libs_to_import.add("C5T")
+                    if pls_json["PLS_INCLUDE_HEADER_ONLY_CURRENT"] == True:
+                        add_header_only_current_to_each_target = True
+                    else:
+                        for target_name in pls_json["PLS_INCLUDE_HEADER_ONLY_CURRENT"]:
+                            add_header_only_current_to_target.add(target_name)
             else:
                 per_dir[src_dir].deps_origin = DepsOrigin.SourceScan
 
@@ -236,6 +246,11 @@ def traverse_source_tree(src_dir="."):
                             if local_src_name in pls_json_deps:
                                 for dep in pls_json_deps[local_src_name]:
                                     do_pls_dep(dep)
+                            if (
+                                add_header_only_current_to_each_target
+                                or target_name in add_header_only_current_to_target
+                            ):
+                                per_dir[src_dir].targets[target_name].target_deps.add("C5T")
                         else:
                             pls_commands = []
                             full_src_name = os.path.join(true_src_dir, src_name)
