@@ -121,12 +121,13 @@ class DepsOrigin(Enum):
 @dataclass
 class CMakeTarget:
     src_fullpath: str
-    deps = set()
+    is_library: bool
+    target_deps: set = field(default_factory=lambda: set())
 
 
 @dataclass
 class PerDirectoryStatus:
-    deps: set = field(default_factory=lambda: set())
+    dir_deps: set = field(default_factory=lambda: set())
     deps_origin: DepsOrigin = DepsOrigin.Unset
     project_name: str = "pls_project"
     targets: defaultdict = field(default_factory=lambda: defaultdict(CMakeTarget))
@@ -180,6 +181,7 @@ def traverse_source_tree(src_dir="."):
     while queue_list:
         src_dir = queue_list.popleft()
         if src_dir not in already_traversed_src_dirs and (src_dir == "." or os.path.isdir(src_dir)):
+            # TODO(dkorolev): A dedicated function to process a given dir.
             if flags.verbose:
                 print(f"PLS: Analyzing `{src_dir}`.")
             libs_to_import = set()
@@ -211,10 +213,12 @@ def traverse_source_tree(src_dir="."):
             def process_sources_in_dir(true_src_dir, prefix=""):
                 for src_name in os.listdir(true_src_dir):
                     if src_name.endswith(".cc"):
-                        executable_name = src_name.rstrip(".cc")
-                        # TODO(dkorolev): This looks like a terrible hack, but would do for now.
-                        if not "lib_" in executable_name and not "_lib" in executable_name:
-                            per_dir[src_dir].targets[executable_name] = CMakeTarget(src_fullpath=prefix + src_name)
+                        target_name = src_name.rstrip(".cc")
+                        per_dir[src_dir].targets[target_name] = CMakeTarget(
+                            src_fullpath=prefix + src_name,
+                            # TODO(dkorolev): This looks like a terrible hack, but would do for now.
+                            is_library=target_name.startswith("lib_"),
+                        )
 
                         def do_pls_add(lib, repo):
                             # TODO(dkorolev): Add branches. Fail if they do not match while installing the dependencies recursively.
@@ -224,7 +228,7 @@ def traverse_source_tree(src_dir="."):
                             libs_to_import.add(lib)
 
                         def do_pls_dep(lib):
-                            per_dir[src_dir].targets[executable_name].deps.add(lib)
+                            per_dir[src_dir].targets[target_name].target_deps.add(lib)
 
                         if pls_json:
                             # TODO(dkorolev): Test Windows paths here, with the other slash.
@@ -280,7 +284,7 @@ def traverse_source_tree(src_dir="."):
                                     if pls_cmd["pls_include_header_only_current"]:
                                         modules["C5T"] = "https://github.com/C5T/current"
                                         libs_to_import.add("C5T")
-                                        per_dir[src_dir].targets[executable_name].deps.add("C5T")
+                                        per_dir[src_dir].targets[target_name].target_deps.add("C5T")
 
             process_sources_in_dir(src_dir)
             src_src_dir = os.path.join(src_dir, "src")
@@ -288,7 +292,7 @@ def traverse_source_tree(src_dir="."):
                 process_sources_in_dir(src_src_dir, "src/")
             for lib in libs_to_import:
                 print(f"PLS: Requirement `{lib}` from `{src_dir}`.")
-                per_dir[src_dir].deps.add(lib)
+                per_dir[src_dir].dir_deps.add(lib)
             for lib in libs_to_import:
                 if lib not in queue_set:
                     add_to_queue(os.path.join(flags.dotpls, "deps", lib))
@@ -317,28 +321,25 @@ def traverse_source_tree(src_dir="."):
                             pls_fail(f"PLS internal error: repl {repo} cloned into {lib}, but can not be located.")
                         create_symlink_with_cmakelists_txt(dst_dir=".", lib_name=lib, lib_cloned_dir=lib_dir)
                         create_symlink_with_cmakelists_txt(dst_dir=src_dir, lib_name=lib, lib_cloned_dir=lib_dir)
+            if os.path.isfile(os.path.join(src_dir, "CMakeLists.txt")):
+                if flags.verbose:
+                    print(f"PLS: Has `CMakeLists.txt` in {src_dir}, will use it.")
+            else:
+                if flags.verbose:
+                    print(f"PLS: No `CMakeLists.txt`, in {src_dir}, will generate it, and will add it to `.gitignore`.")
+                per_dir[src_dir].need_cmakelists_txt = True
+                per_dir[src_dir].add_to_gitignore.append("CMakeLists.txt")
 
 
 def update_dependencies():
-    if os.path.isfile("CMakeLists.txt"):
-        if flags.verbose:
-            print("PLS: Has `CMakeLists.txt`, will use it.")
-    else:
-        if flags.verbose:
-            print("PLS: No `CMakeLists.txt`, will generate it, and will add it to `.gitignore`.")
-        per_dir[full_abspath].need_cmakelists_txt = True
-        per_dir[full_abspath].add_to_gitignore.append("CMakeLists.txt")
-
     # TODO(dkorolev): A better name for this function.
     def apply_gitignore_changes_and_more():
         for full_dir, full_dir_data in per_dir.items():
             if full_dir_data.need_cmakelists_txt:
-                # TODO(dkorolev): Libraries would work too, not just executables.
-                if not full_dir_data.targets:
-                    pls_fail("PLS: To run `pls install/build/run` please make sure to have at least one source file.")
                 # TODO(dkorolev): Update `.pls/cache.json` to indicate that this `CMakeLists.txt` is created by this tool.
                 #                 Better yet, copy it under a different name into `.pls/cache.json`, or store its hash.
                 with open(os.path.join(full_dir, "CMakeLists.txt"), "w") as file:
+                    base_dir = os.path.basename(full_dir)
                     file.write("# NOTE: This `CMakeLists.txt` is autogenerated by `pls`.\n")
                     file.write("#       It is perfectly OK to edit, if only to remove this header.\n")
                     # TODO(dkorolev): Time to introduce `.pls/cache.json`, at least to keep track of which `CMakeLists.txt`-s to clean!
@@ -355,22 +356,28 @@ def update_dependencies():
                     file.write("\n")
                     file.write('# This is for `#include "pls.h"` to work.\n')
                     file.write('include_directories("${CMAKE_SOURCE_DIR}/.pls/pls_h_dir/")\n')
-                    if full_dir_data.deps:
+                    if full_dir_data.dir_deps:
                         file.write("\n")
-                        for dep in full_dir_data.deps:
+                        for dep in full_dir_data.dir_deps:
                             file.write(f"add_subdirectory({dep})\n")
                     if full_dir_data.targets:
                         for target_name, target_details in full_dir_data.targets.items():
                             file.write("\n")
-                            file.write(f"add_executable({target_name} {target_details.src_fullpath})\n")
+                            target_type = "library" if target_details.is_library else "executable"
+                            file.write(f"add_{target_type}({target_name} {target_details.src_fullpath})\n")
                             deps_origin_str = (
                                 "PLS_HAS_PLS_JSON"
                                 if full_dir_data.deps_origin == DepsOrigin.PlsJson
                                 else "PLS_SCANNED_SOURCE"
                             )
                             file.write(f"target_compile_definitions({target_name} PRIVATE {deps_origin_str}=1)\n")
-                            if target_details.deps:
-                                libs = " ".join(sorted(list(target_details.deps)))
+                            if target_details.is_library:
+                                file.write(
+                                    f"target_include_directories({target_name} INTERFACE "
+                                    + '"${CMAKE_CURRENT_SOURCE_DIR}")\n'
+                                )
+                            if target_details.target_deps:
+                                libs = " ".join(sorted(list(target_details.target_deps)))
                                 file.write(f"target_link_libraries({target_name} {libs})\n")
                     if full_dir_data.target_compile_definitions:
                         for target_name, definitions_dict in full_dir_data.target_compile_definitions.items():
@@ -378,6 +385,12 @@ def update_dependencies():
                             for k, v in definitions_dict.items():
                                 # `json.dumps()` is used to `#define` numbers directly, and strings as escaped quoted strings.
                                 file.write(f"target_compile_definitions({target_name} PRIVATE {k}={json.dumps(v)})\n")
+                    if not full_dir_data.targets or base_dir not in full_dir_data.targets:
+                        file.write("\n")
+                        file.write(f"add_library({base_dir} INTERFACE)\n")
+                        file.write(
+                            f"target_include_directories({base_dir} INTERFACE " + '"${CMAKE_CURRENT_SOURCE_DIR}")\n'
+                        )
 
             gitignore_lines = sorted(full_dir_data.add_to_gitignore)
             gitignore_file = os.path.join(full_dir, ".gitignore")
@@ -519,6 +532,8 @@ def cmd_run(args):
     cmd_build([])
     # TODO(dkorolev): Forward the command line? And test it?
     targets = per_dir[os.path.abspath(".")].targets
+    if not targets:
+        pls_fail("PLS: To run `pls install/build/run` please make sure to have at least one source file.")
     if not args:
         if len(targets) == 1:
             result = subprocess.run([f"./.debug/{next(iter(targets.keys()))}"])
