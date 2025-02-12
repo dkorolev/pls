@@ -11,4 +11,4 @@ docker build .
 mkdir -p _out
 time docker run -t -v "$PWD/_out:/out" $(docker build -q .)
 
-[ "$(cat _out/example.txt)" == "OK" ]
+[ "$(cat _out/example.txt)" == "[1,2,3]" ]
