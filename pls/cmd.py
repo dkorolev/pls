@@ -254,6 +254,7 @@ def traverse_source_tree(src_dir="."):
                         else:
                             pls_commands = []
                             full_src_name = os.path.join(true_src_dir, src_name)
+                            # TODO(dkorolev): Fail if this command fails.
                             result = subprocess.run(
                                 [
                                     "bash",
