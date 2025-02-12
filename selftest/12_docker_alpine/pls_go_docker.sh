@@ -9,6 +9,6 @@ mkdir pls_into_docker
 
 docker build .
 mkdir -p _out
-time docker run -it -v "$PWD/_out:/out" $(docker build -q .)
+time docker run -t -v "$PWD/_out:/out" $(docker build -q .)
 
 [ "$(cat _out/example.txt)" == "OK" ]
