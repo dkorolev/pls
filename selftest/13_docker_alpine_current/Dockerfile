@@ -1,5 +1,5 @@
 FROM alpine:latest
-RUN apk add bash python3 clang cmake make
+RUN apk add bash python3 clang cmake make git
 
 # Collected by `pls_go.sh`, `.gitignore`-d.
 COPY ./_pls /_pls
