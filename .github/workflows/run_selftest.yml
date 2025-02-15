@@ -20,3 +20,17 @@ jobs:
         run: sudo ln -sf "$PWD/pls/pls" /usr/local/bin/pls
       - name: selftest
         run: ./run_selftest.sh
+  selftest_head_docker:
+    strategy:
+      matrix:
+        os: [ubuntu-latest]  # NOTE(dkorolev): Not trivial to run `docker`-based tests on `macos-latest` via a GH action.
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: clone
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: install
+        run: sudo ln -sf "$PWD/pls/pls" /usr/local/bin/pls
+      - name: selftest
+        run: ./run_selftest.sh pls_go_docker.sh
