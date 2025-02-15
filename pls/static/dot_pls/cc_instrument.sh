@@ -1,10 +1,11 @@
 #!/bin/bash
 
-# This used to fail silently when `g++` is not present.
-# Changed into `clang++` for now.
-# Figured this our while experimenting with Alpine.
-# TODO(dkorolev): 1) It should not fail silently, 2) perhaps `clang` is an overkill here?
-clang++ \
+CPP=$(g++ --version >/dev/null && echo g++ || echo clang++)
+
+# NOTE(dkorolev): Unfortunately, this next line _may_fail, which is as expected.
+# As long as `#include "pls.h"` comes before the `#include`-s of modules which may not yet be present.
+
+$CPP \
   -I"$2" \
   -D PLS_INSTRUMENTATION \
   -E \
